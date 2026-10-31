@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           ln -s WORKSPACE.darwin WORKSPACE
-          printf '%s\n' 'try-import %workspace%/.bazelrc.darwin' > .bazelrc
+          printf '%s\\n' 'try-import %workspace%/.bazelrc.darwin' > .bazelrc
           test -f .bazelversion
           cat .bazelversion
           test -d Vendors
@@ -67,6 +67,12 @@ jobs:
         run: |
           set -euo pipefail
           ulimit -n 10240
+          # rules_apple 4.2.0 still requires a profile artifact for device bundles
+          # even when legacy signing is disabled. Supply a temporary empty placeholder;
+          # it is removed from the IPA after packaging and is never used to sign the app.
+          mkdir -p Apps/LocalCode/ProvisioningFiles
+          : > Apps/LocalCode/ProvisioningFiles/LocalCode_Development.mobileprovision
+          test -f Apps/LocalCode/ProvisioningFiles/LocalCode_Development.mobileprovision
           bazelisk --version
           bazelisk build --config=release --features=disable_legacy_signing --ios_multi_cpus=arm64 //Apps/LocalCode:LocalCode
 
@@ -83,10 +89,8 @@ jobs:
             exit 1
           fi
 
-          mkdir -p dist
-          cp "$IPA" dist/LocalCode-unsigned-arm64.ipa
-          mkdir -p ipa-check
-          ditto -x -k dist/LocalCode-unsigned-arm64.ipa ipa-check
+          mkdir -p dist ipa-check
+          ditto -x -k "$IPA" ipa-check
 
           APP="$(find ipa-check/Payload -maxdepth 2 -type d -name '*.app' -print -quit)"
           if [[ -z "$APP" || ! -f "$APP/Info.plist" ]]; then
@@ -114,12 +118,37 @@ jobs:
             exit 1
           fi
 
+          # Remove the temporary placeholder profile before producing the deliverable.
+          find "$APP" -name embedded.mobileprovision -type f -delete
           if find "$APP" -name embedded.mobileprovision -print -quit | grep -q .; then
-            echo "::error::An embedded provisioning profile was unexpectedly found."
+            echo "::error::A provisioning profile remains embedded in the staged app."
             exit 1
           fi
 
-          echo "Unsigned IPA validated. It contains a device arm64 app and no embedded provisioning profile."
+          # Repack the app bundle after stripping the temporary profile.
+          rm -f dist/LocalCode-unsigned-arm64.ipa
+          (cd ipa-check && /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/LocalCode-unsigned-arm64.ipa" .)
+
+          # Re-open the final IPA and verify its actual contents, not just the source bundle.
+          rm -rf ipa-final
+          mkdir -p ipa-final
+          ditto -x -k dist/LocalCode-unsigned-arm64.ipa ipa-final
+          FINAL_APP="$(find ipa-final/Payload -maxdepth 2 -type d -name '*.app' -print -quit)"
+          if [[ -z "$FINAL_APP" || ! -f "$FINAL_APP/Info.plist" ]]; then
+            echo "::error::Final IPA failed the Payload app validation."
+            exit 1
+          fi
+          FINAL_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FINAL_APP/Info.plist")"
+          FINAL_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$FINAL_APP/Info.plist")"
+          FINAL_ARCHS="$(lipo -archs "$FINAL_APP/$FINAL_EXECUTABLE")"
+          [[ "$FINAL_BUNDLE_ID" == "com.liuliu.local-code" ]]
+          [[ " $FINAL_ARCHS " == *" arm64 "* ]]
+          if find "$FINAL_APP" -name embedded.mobileprovision -print -quit | grep -q .; then
+            echo "::error::The final IPA unexpectedly contains a provisioning profile."
+            exit 1
+          fi
+
+          echo "Unsigned IPA validated: device arm64, correct bundle ID, no embedded provisioning profile."
           ls -lh dist/LocalCode-unsigned-arm64.ipa
           shasum -a 256 dist/LocalCode-unsigned-arm64.ipa
 
