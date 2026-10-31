@@ -85,12 +85,18 @@ jobs:
           set -euo pipefail
           BAZEL_BIN="$(bazelisk info bazel-bin)"
           echo "Bazel output directory: $BAZEL_BIN"
-          find "$BAZEL_BIN/Apps/LocalCode" -maxdepth 3 -type f -name '*.ipa' -print
-          IPA="$(find "$BAZEL_BIN/Apps/LocalCode" -maxdepth 3 -type f -name '*.ipa' -print -quit)"
+          # Do not assume the IPA is emitted under Apps/LocalCode; Bazel output
+          # layouts can differ between configurations and rules_apple versions.
+          echo "Searching the complete Bazel output tree for IPA files..."
+          find "$BAZEL_BIN" -type f -name '*.ipa' -print
+          IPA="$(find "$BAZEL_BIN" -type f -name '*.ipa' -print -quit)"
           if [[ -z "$IPA" || ! -f "$IPA" ]]; then
-            echo "::error::Bazel completed but no IPA was found under bazel-bin/Apps/LocalCode."
+            echo "::error::Bazel completed but no IPA was found anywhere under bazel-bin."
+            echo "Top-level Bazel output entries:"
+            ls -la "$BAZEL_BIN" || true
             exit 1
           fi
+          echo "Found IPA: $IPA"
 
           mkdir -p dist ipa-check
           ditto -x -k "$IPA" ipa-check
