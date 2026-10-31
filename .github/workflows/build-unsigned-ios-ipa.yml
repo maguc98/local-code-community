@@ -1,0 +1,131 @@
+name: Build Unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unsigned-ios-ipa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build arm64 device IPA (unsigned)
+    runs-on: macos-26
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out source and Git LFS assets
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Select Xcode 26.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE="/Applications/Xcode_26.6.app/Contents/Developer"
+          if [[ ! -d "$XCODE" ]]; then
+            echo "::error::Xcode 26.6 is not installed on this runner image."
+            ls -1 /Applications | grep -E '^Xcode' || true
+            exit 1
+          fi
+          sudo xcode-select --switch "$XCODE"
+          sudo xcodebuild -license accept
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install bazelisk cmake
+          git lfs install
+          git lfs pull
+          git lfs ls-files | head -40 || true
+
+      - name: Prepare Bazel workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          ln -s WORKSPACE.darwin WORKSPACE
+          printf '%s\n' 'try-import %workspace%/.bazelrc.darwin' > .bazelrc
+          test -f .bazelversion
+          cat .bazelversion
+          test -d Vendors
+
+      - name: Build unsigned iPhone/iPad app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -n 10240
+          bazelisk --version
+          bazelisk build \
+            --config=release \
+            --features=disable_legacy_signing \
+            --ios_multi_cpus=arm64 \
+            //Apps/LocalCode:LocalCode
+
+      - name: Validate and stage unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          BAZEL_BIN="$(bazelisk info bazel-bin)"
+          echo "Bazel output directory: $BAZEL_BIN"
+          find "$BAZEL_BIN/Apps/LocalCode" -maxdepth 3 -type f -name '*.ipa' -print
+          IPA="$(find "$BAZEL_BIN/Apps/LocalCode" -maxdepth 3 -type f -name '*.ipa' -print -quit)"
+          if [[ -z "$IPA" || ! -f "$IPA" ]]; then
+            echo "::error::Bazel completed but no IPA was found under bazel-bin/Apps/LocalCode."
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$IPA" dist/LocalCode-unsigned-arm64.ipa
+          mkdir -p ipa-check
+          ditto -x -k dist/LocalCode-unsigned-arm64.ipa ipa-check
+
+          APP="$(find ipa-check/Payload -maxdepth 2 -type d -name '*.app' -print -quit)"
+          if [[ -z "$APP" || ! -f "$APP/Info.plist" ]]; then
+            echo "::error::IPA does not contain a valid Payload/*.app/Info.plist."
+            exit 1
+          fi
+
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          if [[ "$BUNDLE_ID" != "com.liuliu.local-code" ]]; then
+            echo "::error::Unexpected bundle identifier: $BUNDLE_ID"
+            exit 1
+          fi
+          if [[ ! -f "$APP/$EXECUTABLE" ]]; then
+            echo "::error::App executable is missing: $EXECUTABLE"
+            exit 1
+          fi
+
+          ARCHS="$(lipo -archs "$APP/$EXECUTABLE")"
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Executable: $EXECUTABLE"
+          echo "Architectures: $ARCHS"
+          if [[ " $ARCHS " != *" arm64 "* ]]; then
+            echo "::error::The app executable does not contain arm64."
+            exit 1
+          fi
+
+          if find "$APP" -name embedded.mobileprovision -print -quit | grep -q .; then
+            echo "::error::An embedded provisioning profile was unexpectedly found."
+            exit 1
+          fi
+
+          echo "Unsigned IPA validated. It contains a device arm64 app and no embedded provisioning profile."
+          ls -lh dist/LocalCode-unsigned-arm64.ipa
+          shasum -a 256 dist/LocalCode-unsigned-arm64.ipa
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalCode-unsigned-arm64-IPA
+          path: dist/LocalCode-unsigned-arm64.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
