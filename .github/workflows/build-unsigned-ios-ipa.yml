@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install bazelisk cmake
+          brew install bazelisk cmake coreutils
           git lfs install
           git lfs pull
           git lfs ls-files | head -40 || true
