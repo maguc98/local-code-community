@@ -1,4 +1,5 @@
 name: Build Unsigned iOS IPA
+# Run 6: keep the known-good build configuration; allow the full Bazel build to finish.
 
 on:
   workflow_dispatch:
