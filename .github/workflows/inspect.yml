@@ -1,0 +1,29 @@
+name: Inspect Project
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: List root files
+        run: |
+          echo "===== ROOT ====="
+          ls -la
+
+      - name: Find Xcode project & workspace
+        run: |
+          echo "===== PROJECT FILES ====="
+          find . -maxdepth 4 \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) -print
+
+      - name: Find Schemes
+        run: |
+          echo "===== SCHEMES ====="
+          find . -maxdepth 6 -name "*.xcscheme" -print
+
+      - name: Find dependency managers
+        run: |
+          echo "===== DEPENDENCIES ====="
+          find . -maxdepth 4 \( -name "Package.swift" -o -name "Package.resolved" -o -name "Podfile" -o -name "Podfile.lock" \) -print
