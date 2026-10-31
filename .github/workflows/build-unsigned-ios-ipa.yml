@@ -57,7 +57,9 @@ jobs:
         run: |
           set -euo pipefail
           ln -s WORKSPACE.darwin WORKSPACE
-          printf '%s\\n' 'try-import %workspace%/.bazelrc.darwin' > .bazelrc
+          cat > .bazelrc <<'BAZELRC'
+          try-import %workspace%/.bazelrc.darwin
+          BAZELRC
           test -f .bazelversion
           cat .bazelversion
           test -d Vendors
