@@ -83,20 +83,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BAZEL_BIN="$(bazelisk info bazel-bin)"
-          echo "Bazel output directory: $BAZEL_BIN"
-          # Do not assume the IPA is emitted under Apps/LocalCode; Bazel output
-          # layouts can differ between configurations and rules_apple versions.
-          echo "Searching the complete Bazel output tree for IPA files..."
-          find "$BAZEL_BIN" -type f -name '*.ipa' -print
-          IPA="$(find "$BAZEL_BIN" -type f -name '*.ipa' -print -quit)"
-          if [[ -z "$IPA" || ! -f "$IPA" ]]; then
-            echo "::error::Bazel completed but no IPA was found anywhere under bazel-bin."
-            echo "Top-level Bazel output entries:"
-            ls -la "$BAZEL_BIN" || true
+          # Bazel's successful build summary reports this declared output path.
+          # Avoid resolving bazel-bin through `bazelisk info bazel-bin`: on this
+          # runner that returned an execroot path that no longer existed after
+          # the build command had completed.
+          IPA="bazel-bin/Apps/LocalCode/LocalCode.ipa"
+          echo "Checking declared Bazel IPA output: $IPA"
+          if [[ ! -f "$IPA" ]]; then
+            echo "::error::Bazel reported the IPA target, but the declared output is missing."
+            echo "Workspace: $(pwd)"
+            echo "Workspace bazel-bin entry:"
+            ls -la bazel-bin || true
+            echo "LocalCode output directory:"
+            ls -la bazel-bin/Apps/LocalCode || true
+            echo "Bazel output-base:"
+            bazelisk info output_base || true
             exit 1
           fi
           echo "Found IPA: $IPA"
+          ls -lh "$IPA"
 
           mkdir -p dist ipa-check
           ditto -x -k "$IPA" ipa-check
