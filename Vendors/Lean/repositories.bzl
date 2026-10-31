@@ -27,7 +27,10 @@ def lean_repositories():
         build_file = "//Vendors/Lean:gmp.BUILD.bazel",
         sha256 = "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
         strip_prefix = "gmp-6.3.0",
-        urls = ["https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz"],
+        urls = [
+            "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz",
+            "https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz",
+        ],
     )
 
     http_archive(
