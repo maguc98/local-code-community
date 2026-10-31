@@ -2,6 +2,11 @@ name: Build Unsigned iOS IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/build-unsigned-ios-ipa.yml
 
 permissions:
   contents: read
@@ -51,7 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           ln -s WORKSPACE.darwin WORKSPACE
-          printf '%s\n' 'try-import %workspace%/.bazelrc.darwin' > .bazelrc
+          printf '%s\\n' 'try-import %workspace%/.bazelrc.darwin' > .bazelrc
           test -f .bazelversion
           cat .bazelversion
           test -d Vendors
@@ -62,10 +67,10 @@ jobs:
           set -euo pipefail
           ulimit -n 10240
           bazelisk --version
-          bazelisk build \
-            --config=release \
-            --features=disable_legacy_signing \
-            --ios_multi_cpus=arm64 \
+          bazelisk build \\
+            --config=release \\
+            --features=disable_legacy_signing \\
+            --ios_multi_cpus=arm64 \\
             //Apps/LocalCode:LocalCode
 
       - name: Validate and stage unsigned IPA
